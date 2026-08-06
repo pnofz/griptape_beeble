@@ -1,0 +1,48 @@
+{
+  "name": "Beeble SwitchX Spike",
+  "library_schema_version": "0.7.0",
+  "settings": [
+    {
+      "description": "API key required by Beeble SwitchX nodes",
+      "category": "app_events.on_app_initialization_complete",
+      "contents": {
+        "secrets_to_register": {
+          "BEEBLE_API_KEY": ""
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "author": "Rodeo FX",
+    "description": "Throwaway spike proving the Beeble SwitchX loop end to end. Not for production.",
+    "library_version": "0.0.1",
+    "engine_version": "0.94.4",
+    "tags": ["beeble", "switchx", "spike"],
+    "dependencies": {
+      "pip_dependencies": ["httpx>=0.27"]
+    }
+  },
+  "categories": [
+    {
+      "switchx_spike": {
+        "title": "SwitchX/Spike",
+        "description": "Throwaway end-to-end probe",
+        "color": "border-amber-500",
+        "icon": "Wand2"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "class_name": "SwitchXSpike",
+      "file_path": "switchx_spike.py",
+      "metadata": {
+        "category": "switchx_spike",
+        "display_name": "SwitchX Spike",
+        "description": "Submit one 720p sample generation, poll, download, save. Spends real credit.",
+        "icon": "Wand2"
+      }
+    }
+  ],
+  "is_default_library": false
+}
