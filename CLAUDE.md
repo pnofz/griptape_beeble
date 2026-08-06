@@ -186,8 +186,10 @@ at `~/.nuke/griptape/sam3/.venv/Lib/site-packages/griptape_nodes`. Reference lib
 2. **Versions.** `library_schema_version` in the wild: advanced-media `0.4.0`, standard `0.6.0`,
    nuke `0.7.0` — the engine tolerates a range, so **use `0.7.0`**. `engine_version` → **`0.94.4`**.
    The design's `0.10.0` schema version was higher than anything real; don't use it.
-3. **`secrets_to_register` is a JSON object, not an array.** Real manifests use
-   `{"BEEBLE_API_KEY": ""}`. DESIGN §6's `["BEEBLE_API_KEY"]` was wrong and is now fixed in the doc.
+3. **`secrets_to_register` accepts either shape.** `settings.py:197` types it
+   `list[str] | dict[str, str]` — an array of names, or a name→default mapping. All three official
+   libraries use the **dict** form (`{"BEEBLE_API_KEY": ""}`), so prefer it for consistency, but
+   DESIGN §6's original array form was valid too.
 4. **`saved.location` vs `dest.location` — gotcha 8 confirmed in source.**
    `FileDestination.write_bytes()` (`files/file.py:824-843`) returns a *new* `File(str(path))` with
    the resolved path, while `FileDestination.location` (`:817`) delegates to the unresolved

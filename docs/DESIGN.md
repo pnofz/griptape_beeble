@@ -588,8 +588,9 @@ Attribution Overlay.
    is sufficient — registration is by explicit path or recursive scan, not by filename convention.
 2. ~~**`library_schema_version` / `engine_version`**~~ — **RESOLVED:** schema `0.7.0` (observed range
    on disk is `0.4.0`–`0.7.0`; the `0.10.0` in §6 above was higher than anything real), engine
-   `0.94.4` (the installed version). Also corrected in §6: `secrets_to_register` is a JSON **object**
-   keyed by secret name, not an array.
+   `0.94.4` (the installed version). §6 also switched `secrets_to_register` to the name→default
+   **object** form for consistency with the official libraries — `settings.py:197` types the field
+   `list[str] | dict[str, str]`, so the original array form was valid as well.
 3. **ffmpeg dependency** — the whole `prep` category needs ffmpeg/ffprobe. Bundle
    `imageio-ffmpeg` as a pip dependency, or require a system install and validate its presence in
    `validate_before_workflow_run()`? Bundling is friendlier; a facility may prefer the vetted
