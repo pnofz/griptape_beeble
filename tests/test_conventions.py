@@ -70,18 +70,13 @@ def test_no_blocking_sleep_or_requests() -> None:
     assert offenders == [], f"use asyncio.sleep and httpx: {offenders}"
 
 
-def test_manifest_icon_paths_exist() -> None:
-    """An icon path that points at nothing fails silently in the editor.
+MANIFEST_PATH_PARTS = ("griptape_nodes_library.json",)
 
-    Both shipped Griptape libraries have this bug: the standard library references
-    ``logos/cohere.svg`` and the nuke library ``logos/nuke.png``, and neither file is on disk.
-    Icon paths resolve relative to the manifest's own directory.
-    """
+
+def manifest_icons() -> list[str]:
     import json
 
-    manifest_path = REPO_ROOT / "griptape_nodes_library.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-
+    manifest = json.loads((REPO_ROOT / "griptape_nodes_library.json").read_text(encoding="utf-8"))
     icons: list[str] = []
     for entry in manifest.get("categories", []):
         icons.extend(definition.get("icon", "") for definition in entry.values())
@@ -91,13 +86,39 @@ def test_manifest_icon_paths_exist() -> None:
             icons.append(icon)
         elif isinstance(icon, dict):  # IconVariant: {"light": ..., "dark": ...}
             icons.extend(str(v) for v in icon.values())
+    return icons
 
-    # A bare name like "Wand2" is a lucide icon, not a path; only check things that look like files.
-    referenced_files = [icon for icon in icons if "/" in icon or icon.lower().endswith((".png", ".svg", ".jpg"))]
-    assert referenced_files, "expected at least one image icon to be referenced"
 
-    missing = [icon for icon in referenced_files if not (manifest_path.parent / icon).is_file()]
-    assert missing == [], f"manifest references icons that do not exist: {missing}"
+def test_manifest_has_no_relative_image_paths() -> None:
+    """A relative image path renders as a broken link.
+
+    The engine exposes no route that serves library assets, so the editor cannot resolve
+    ``logos/beeble.png``. Both shipped Griptape libraries have this bug -- the standard library
+    references ``logos/cohere.svg`` and nuke ``logos/nuke.png``, neither of which is on disk.
+    Use a data: URI instead; it needs no resolution at all.
+    """
+    broken = [
+        icon
+        for icon in manifest_icons()
+        if not icon.startswith("data:") and icon.lower().endswith((".png", ".svg", ".jpg"))
+    ]
+    assert broken == [], f"relative image paths render as broken links, embed them instead: {broken}"
+
+
+def test_embedded_icon_is_a_valid_png_matching_the_source_file() -> None:
+    """The manifest carries the bytes; logos/beeble.png stays as the editable source of truth."""
+    import base64
+
+    embedded = [icon for icon in manifest_icons() if icon.startswith("data:")]
+    assert embedded, "expected the Beeble logo to be embedded as a data: URI"
+
+    source = (REPO_ROOT / "logos" / "beeble.png").read_bytes()
+    for icon in embedded:
+        header, _, payload = icon.partition("base64,")
+        assert header == "data:image/png;", f"unexpected data URI header: {header!r}"
+        decoded = base64.b64decode(payload)
+        assert decoded.startswith(b"\x89PNG\r\n\x1a\n"), "embedded icon is not a valid PNG"
+        assert decoded == source, "embedded icon has drifted from logos/beeble.png"
 
 
 def test_poll_interval_never_defaults_below_the_read_cap() -> None:
