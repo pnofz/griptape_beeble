@@ -1,9 +1,12 @@
 """Throwaway spike node: proves the whole Beeble SwitchX loop end to end.
 
-Not part of the library. Its only job is to settle the open questions in CLAUDE.md against a
-live engine and a live API for a few dollars of credit, then be deleted.
+Not part of the library. Its job is to settle the open questions in CLAUDE.md against a live engine
+and a live API, then be deleted.
 
-Deliberately self-contained — no beeble_library imports — so it can run before any of P0 exists.
+It now drives the real ``beeble_library`` modules rather than reimplementing them, so a green run
+also exercises the client's retry/rate-limit path and uri.py's localhost-to-upload path -- the two
+riskiest pieces of P0. That requires the manifest to sit at the repo root, because the engine adds
+the *manifest's* directory to sys.path.
 """
 
 from __future__ import annotations
@@ -14,64 +17,111 @@ import json
 import time
 from typing import Any
 
-import httpx
-from griptape.artifacts import VideoUrlArtifact
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import SuccessFailureNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.options import Options
 
-BASE_URL = "https://api.beeble.ai/v1"
+from beeble_library.client import BeebleClient, job_error, output_urls
+from beeble_library.constants import (
+    API_KEY_NAME,
+    DEFAULT_POLL_INTERVAL_SECONDS,
+    DEFAULT_TIMEOUT_MINUTES,
+    MIN_POLL_INTERVAL_SECONDS,
+)
+from beeble_library.errors import BeebleError
+from beeble_library.uri import resolve
 
-# Beeble's public quickstart assets — already https-reachable, so the spike sidesteps the
-# localhost-artifact problem (gotcha 6) and tests only the generation loop.
+# Beeble's public quickstart assets. Used when no source is wired in, so the node runs standalone.
 SAMPLE_SOURCE = "https://cdn.beeble.ai/public/developer-api/source.mp4"
 SAMPLE_REFERENCE = "https://cdn.beeble.ai/public/developer-api/reference.png"
 SAMPLE_ALPHA = "https://cdn.beeble.ai/public/developer-api/alpha.mp4"
 
-# 5 RPM reads = one request per 12 s. 15 s is the floor the library will ship with.
-# Beeble's own quickstart uses 5 s, which is 2.4x over the limit from a single waiter.
-POLL_INTERVAL_SECONDS = 15
-TIMEOUT_MINUTES = 20
-
 
 class SwitchXSpike(SuccessFailureNode):
-    """Submit one 720p video generation against Beeble's sample assets and download the render."""
+    """Submit one SwitchX video generation, poll it, download the render."""
 
-    API_KEY_NAME = "BEEBLE_API_KEY"
+    API_KEY_NAME = API_KEY_NAME
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata=metadata)
+        self.category = "SwitchX/Spike"
+        self.description = "End-to-end Beeble SwitchX probe. Spends real credit."
 
+        # --- inputs ---------------------------------------------------------------------
+        self.add_parameter(
+            ParameterVideo(
+                name="source_video",
+                tooltip=(
+                    "Video to transform. Leave empty to use Beeble's public sample clip. "
+                    "Localhost artifacts are uploaded to Beeble automatically."
+                ),
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
+        self.add_parameter(
+            ParameterImage(
+                name="reference_image",
+                tooltip="Reference image driving the look. Optional if a prompt is supplied.",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
         self.add_parameter(
             Parameter(
                 name="prompt",
                 type="str",
                 default_value="cinematic golden hour rim light from camera left, warm practical fill",
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Style prompt. Sent alongside the sample reference image.",
+                tooltip="Art direction. One of prompt or reference_image is required.",
                 ui_options={"multiline": True},
+            )
+        )
+        self.add_parameter(
+            Parameter(
+                name="alpha_mode",
+                type="str",
+                default_value="auto",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                tooltip=(
+                    "auto: isolate the main subject, no alpha needed. fill: whole frame, keeps "
+                    "geometry. custom/select: needs a matching alpha, only wired up here for the "
+                    "sample clip."
+                ),
+                traits={Options(choices=["auto", "fill", "custom", "select"])},
+            )
+        )
+        self.add_parameter(
+            Parameter(
+                name="max_resolution",
+                type="int",
+                default_value=720,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                tooltip="Output cap. 720 is the cheap one -- keep it there while spiking.",
+                traits={Options(choices=[720, 1080])},
             )
         )
         self.add_parameter(
             Parameter(
                 name="poll_interval",
                 type="int",
-                default_value=POLL_INTERVAL_SECONDS,
+                default_value=DEFAULT_POLL_INTERVAL_SECONDS,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-                tooltip="Seconds between status polls. Do not go below 12 (5 RPM read cap).",
+                tooltip=f"Seconds between polls. Never below {MIN_POLL_INTERVAL_SECONDS} (5 RPM read cap).",
             )
         )
 
-        # --- outputs -------------------------------------------------------------------
+        # --- outputs --------------------------------------------------------------------
         self.add_parameter(
             ParameterVideo(
                 name="output_video",
                 tooltip="The downloaded render",
-                allowed_modes={ParameterMode.OUTPUT},
-                allow_input=False,
-                allow_property=False,
+                allowed_modes={ParameterMode.OUTPUT, ParameterMode.PROPERTY},
+                settable=False,
+                ui_options={"pulse_on_run": True},
             )
         )
         self.add_parameter(
@@ -118,7 +168,7 @@ class SwitchXSpike(SuccessFailureNode):
                 type="json",
                 default_value={},
                 allowed_modes={ParameterMode.OUTPUT},
-                tooltip="Full final status response — the ground truth for undocumented fields",
+                tooltip="Full final status response -- ground truth for undocumented fields",
             )
         )
 
@@ -142,18 +192,29 @@ class SwitchXSpike(SuccessFailureNode):
         key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME, should_error_on_not_found=False)
         if not key:
             errors.append(
-                ValueError(
-                    f"{self.name}: {self.API_KEY_NAME} is not set. Add it under "
-                    f"Settings -> API Keys & Secrets, or run: gtn config set-secret {self.API_KEY_NAME} <key>"
-                )
+                ValueError(f"{self.name}: {self.API_KEY_NAME} is not set. Add it under Settings -> API Keys & Secrets.")
             )
 
         interval = self.get_parameter_value("poll_interval")
-        if isinstance(interval, int) and interval < 12:
+        if isinstance(interval, int) and interval < MIN_POLL_INTERVAL_SECONDS:
             errors.append(
                 ValueError(
-                    f"{self.name}: poll_interval {interval}s is below the 12s floor implied by the "
-                    f"5 RPM read cap — raise it to 15."
+                    f"{self.name}: poll_interval {interval}s is below the {MIN_POLL_INTERVAL_SECONDS}s "
+                    f"floor implied by the 5 RPM read cap -- raise it to {DEFAULT_POLL_INTERVAL_SECONDS}."
+                )
+            )
+
+        if not self.get_parameter_value("prompt") and not self.get_parameter_value("reference_image"):
+            errors.append(
+                ValueError(f"{self.name}: supply a prompt or a reference_image (MISSING_STYLE_INPUT otherwise).")
+            )
+
+        alpha_mode = self.get_parameter_value("alpha_mode")
+        if alpha_mode in ("custom", "select") and self.get_parameter_value("source_video"):
+            errors.append(
+                ValueError(
+                    f"{self.name}: alpha_mode={alpha_mode!r} needs a matching alpha, which this spike only "
+                    f"has for the built-in sample clip. Use 'auto' or 'fill' with your own footage."
                 )
             )
 
@@ -176,77 +237,50 @@ class SwitchXSpike(SuccessFailureNode):
 
         try:
             api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
-            headers = {"x-api-key": api_key}
-            prompt = self.get_parameter_value("prompt") or ""
-            interval = int(self.get_parameter_value("poll_interval") or POLL_INTERVAL_SECONDS)
+            interval = int(self.get_parameter_value("poll_interval") or DEFAULT_POLL_INTERVAL_SECONDS)
 
-            body = {
-                "generation_type": "video",
-                "source_uri": SAMPLE_SOURCE,
-                "reference_image_uri": SAMPLE_REFERENCE,
-                "alpha_uri": SAMPLE_ALPHA,
-                "alpha_mode": "custom",
-                "max_resolution": 720,
-                "prompt": prompt,
-            }
-            # Same scheme the library will use everywhere: same config resumes, changed config
-            # submits fresh. A bare prefix would silently return a stale job after a prompt edit.
-            # sha1 is a config fingerprint here, not a security primitive.
-            config_hash = hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()[:8]
-            body["idempotency_key"] = f"spike_sample_{config_hash}"
-
-            async with httpx.AsyncClient(base_url=BASE_URL, headers=headers, timeout=60.0) as client:
-                # --- account limits: are 5 RPM / 10 concurrent actually our numbers? ---
+            async with BeebleClient(api_key) as client:
+                # Live limits first: 5 RPM / 10 concurrent are defaults, not necessarily ours.
                 try:
-                    acct = await client.get("/account/info")
-                    if acct.status_code == httpx.codes.OK:
-                        limits = acct.json().get("rate_limits") or {}
-                        notes.append(f"account rate_limits = {json.dumps(limits)}")
-                    else:
-                        notes.append(f"/account/info returned {acct.status_code}: {acct.text[:200]}")
-                except httpx.HTTPError as e:  # non-fatal, it's diagnostic only
+                    info = await client.sync_rate_limits()
+                    notes.append(f"account rate_limits = {json.dumps(info.get('rate_limits'))}")
+                except BeebleError as e:  # diagnostic only, never fatal
                     notes.append(f"/account/info failed: {e}")
 
-                # --- submit ---
-                self.publish_update_to_parameter("status", "submitting")
-                resp = await client.post("/switchx/generations", json=body)
-                if resp.status_code != httpx.codes.OK:
-                    msg = f"Submit failed HTTP {resp.status_code}: {resp.text[:500]}"
-                    raise RuntimeError(msg)
+                body = await self._build_body(client, notes)
 
-                job = resp.json()
+                self.publish_update_to_parameter("status", "submitting")
+                job = await client.submit_generation(body)
                 job_id = job.get("id", "")
                 self.parameter_output_values["job_id"] = job_id
                 self.publish_update_to_parameter("job_id", job_id)
                 notes.append(f"submit -> id={job_id} status={job.get('status')} seed={job.get('seed')}")
                 notes.append(f"submit response keys = {sorted(job.keys())}")
 
-                # --- poll ---
                 job = await self._poll(client, job_id, interval, notes)
 
-                # --- download ---
-                render_url = self._pick_render_url(job, notes)
-                dl = await client.get(render_url, headers={})  # signed URL: no api key
-                dl.raise_for_status()
-                render_bytes = dl.content
-                notes.append(
-                    f"render downloaded: {len(render_bytes) / 1_048_576:.2f} MB, "
-                    f"content-type={dl.headers.get('content-type')}"
-                )
+                urls = output_urls(job)
+                notes.append(f"output urls present = { {k: bool(v) for k, v in urls.items()} }")
+                render_url = urls["render"]
+                if not render_url:
+                    msg = f"Job completed but output.render was null. Full response: {json.dumps(job)[:600]}"
+                    raise RuntimeError(msg)
 
-            # --- save (gotcha 8: saved.location, never dest.location) ---
+                render_bytes = await client.download(render_url)
+                notes.append(f"render downloaded: {len(render_bytes) / 1_048_576:.2f} MB")
+
+            # Save (gotcha 8: capture the return value; dest.location stays unresolved).
             dest = self._file_param.build_file()
             saved = dest.write_bytes(render_bytes)
             notes.append(f"saved.location = {saved.location}")
             notes.append(f"audio: {self._audio_note(render_bytes)}")
 
-            self.parameter_output_values["output_video"] = VideoUrlArtifact(saved.location)
+            self.parameter_output_values["output_video"] = VideoUrlArtifact(value=saved.location, name=saved.name)
             self.parameter_output_values["raw_job"] = job
             self.parameter_output_values["status"] = job.get("status", "")
             self.parameter_output_values["progress"] = 100
 
-            elapsed = time.monotonic() - started
-            notes.append(f"wall clock: {elapsed:.0f}s")
+            notes.append(f"wall clock: {time.monotonic() - started:.0f}s")
             findings = "\n".join(f"- {n}" for n in notes)
             self.parameter_output_values["findings"] = findings
             self._set_status_results(was_successful=True, result_details=f"Spike succeeded.\n{findings}")
@@ -260,71 +294,89 @@ class SwitchXSpike(SuccessFailureNode):
             )
             self._handle_failure_exception(e)
 
-    async def _poll(self, client: httpx.AsyncClient, job_id: str, interval: int, notes: list[str]) -> dict[str, Any]:
-        max_attempts = max(1, (TIMEOUT_MINUTES * 60) // interval)
-        saw_progress: list[int] = []
+    async def _build_body(self, client: BeebleClient, notes: list[str]) -> dict[str, Any]:
+        """Assemble the request, resolving any wired-in media to URIs Beeble can fetch."""
+        source_video = self.get_parameter_value("source_video")
+        reference_image = self.get_parameter_value("reference_image")
+        alpha_mode = self.get_parameter_value("alpha_mode") or "auto"
+        using_sample = not source_video
+
+        if using_sample:
+            source_uri = SAMPLE_SOURCE
+            notes.append("source = Beeble sample clip")
+        else:
+            resolved = await resolve(source_video, client)
+            source_uri = resolved.uri
+            notes.append(
+                f"source resolved from {resolved.scheme} -> {'upload' if resolved.uploaded else 'passthrough'}"
+            )
+
+        body: dict[str, Any] = {
+            "generation_type": "video",
+            "source_uri": source_uri,
+            "alpha_mode": alpha_mode,
+            "max_resolution": int(self.get_parameter_value("max_resolution") or 720),
+        }
+
+        prompt = self.get_parameter_value("prompt")
+        if prompt:
+            body["prompt"] = prompt
+
+        if reference_image:
+            resolved_ref = await resolve(reference_image, client)
+            body["reference_image_uri"] = resolved_ref.uri
+            notes.append(f"reference resolved from {resolved_ref.scheme}")
+        elif using_sample and not prompt:
+            body["reference_image_uri"] = SAMPLE_REFERENCE
+
+        if alpha_mode in ("custom", "select"):
+            # Preflight already rejects these with user-supplied footage.
+            body["alpha_uri"] = SAMPLE_ALPHA
+
+        # Same scheme the library uses everywhere: same config resumes, changed config submits fresh.
+        config_hash = hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()[:8]
+        body["idempotency_key"] = f"spike_{config_hash}"
+        return body
+
+    async def _poll(self, client: BeebleClient, job_id: str, interval: int, notes: list[str]) -> dict[str, Any]:
+        max_attempts = max(1, (DEFAULT_TIMEOUT_MINUTES * 60) // interval)
+        seen_progress: list[int] = []
 
         for _attempt in range(max_attempts):
-            if self.is_cancellation_requested():
+            # NOTE: a property, not a method. Calling it raises "'bool' object is not callable".
+            if self.is_cancellation_requested:
                 msg = "Cancelled by user"
                 raise RuntimeError(msg)
 
             await asyncio.sleep(interval)
 
-            resp = await client.get(f"/switchx/generations/{job_id}")
-            if resp.status_code != httpx.codes.OK:
-                msg = f"Poll failed HTTP {resp.status_code}: {resp.text[:300]}"
-                raise RuntimeError(msg)
-
-            job = resp.json()
+            job = await client.get_job(job_id)
             status = job.get("status", "")
             progress = job.get("progress") or 0
-            saw_progress.append(progress)
+            seen_progress.append(progress)
 
             self.publish_update_to_parameter("status", status)
             self.publish_update_to_parameter("progress", progress)
 
             if status == "completed":
-                notes.append(f"progress sequence observed = {saw_progress}")
+                notes.append(f"progress sequence observed = {seen_progress}")
                 notes.append(f"completed response keys = {sorted(job.keys())}")
                 return job
             if status == "failed":
-                # `error` is nullable-but-present, so .get("error", default) never fires its default.
-                msg = f"Job failed: {job.get('error') or 'unknown'}"
+                msg = f"Job failed: {job_error(job)}"
                 raise RuntimeError(msg)
 
-        msg = f"Timed out after {TIMEOUT_MINUTES} min. Job {job_id} may still complete — re-fetch by id."
-        raise RuntimeError(msg)
-
-    @staticmethod
-    def _pick_render_url(job: dict[str, Any], notes: list[str]) -> str:
-        """Find the render URL without assuming a field name the docs don't pin down."""
-        for key in ("render_url", "output_url", "result_url", "video_url", "url"):
-            if job.get(key):
-                notes.append(f"render URL field name = {key!r}")
-                return str(job[key])
-
-        # Nested shapes: {"output": {...}} / {"outputs": {...}}
-        for container in ("output", "outputs", "result"):
-            sub = job.get(container)
-            if isinstance(sub, dict):
-                for key in ("render_url", "url", "video", "render"):
-                    if sub.get(key):
-                        notes.append(f"render URL field name = {container}.{key}")
-                        return str(sub[key])
-
-        msg = f"Could not find a render URL. Response keys: {sorted(job.keys())}. Full: {json.dumps(job)[:800]}"
+        msg = f"Timed out after {DEFAULT_TIMEOUT_MINUTES} min. Job {job_id} may still complete -- re-fetch by id."
         raise RuntimeError(msg)
 
     @staticmethod
     def _audio_note(data: bytes) -> str:
         """Cheap audio check with no ffprobe dependency.
 
-        Looks for an MP4 audio-codec box in the container header. Presence is strong evidence of
-        an audio track; absence is suggestive, not proof. ffprobe confirms it properly.
+        Presence of an audio box is strong evidence of a track; absence is suggestive, not proof.
         """
         head = data[:262_144]
-        found = [tag.decode() for tag in (b"mp4a", b"esds", b"Audio", b"soun") if tag in head]
+        found = [tag.decode() for tag in (b"mp4a", b"esds", b"soun") if tag in head]
         if found:
-            return f"likely HAS audio (found {found} in container header) -> Restore Audio may be unnecessary"
+            return f"likely HAS audio (found {found}) -> Restore Audio may be unnecessary"
         return "likely SILENT (no mp4a/soun box in first 256 KB) -> Restore Audio justified; confirm with ffprobe"

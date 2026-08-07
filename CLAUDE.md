@@ -101,7 +101,11 @@ reproducing an approved plate.
 - **Async:** `async def aprocess(self) -> None` with `httpx.AsyncClient`. Never `requests` or
   `time.sleep()` — they stall the engine event loop. Wrap unavoidable blocking calls in
   `await asyncio.to_thread(...)`.
-- **Cancellation:** check `self.is_cancellation_requested()` at the top of every poll iteration.
+- **Cancellation:** check `self.is_cancellation_requested` at the top of every poll iteration. It is
+  a **`@property`** (`node_types.py:368`), *not* a method — `self.is_cancellation_requested()` raises
+  `'bool' object is not callable`. The standard library's `agent.py:870` confirms the no-parens form.
+  The other `BaseNode` properties are `parameters`, `state` and `parent_group`; everything else this
+  library calls is a real method.
 - **Progress:** `self.publish_update_to_parameter("progress", n)` against an `int` output param
   with `ui_options={"progress_bar": True}`; `"status"` as a `str` output alongside it.
 - **Secrets:** `GriptapeNodes.SecretsManager().get_secret("BEEBLE_API_KEY")`, with `API_KEY_NAME`

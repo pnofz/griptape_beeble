@@ -96,6 +96,17 @@
       }
     }
   ],
-  "nodes": [],
+  "nodes": [
+    {
+      "class_name": "SwitchXSpike",
+      "file_path": "spike/switchx_spike.py",
+      "metadata": {
+        "category": "switchx",
+        "display_name": "SwitchX Spike",
+        "description": "Throwaway end-to-end probe: submit, poll, download, save. Spends real credit.",
+        "icon": "Wand2"
+      }
+    }
+  ],
   "is_default_library": false
 }

@@ -120,7 +120,7 @@ A failed shot in a batch should route, not crash the graph.
 
 **D5 — `async def aprocess()` with `httpx.AsyncClient`, never `requests` + `time.sleep()`.**
 Blocking calls stall the engine event loop. Poll loops check
-`self.is_cancellation_requested()` every iteration and push progress with
+`self.is_cancellation_requested` (a **property**, not a method) every iteration and push progress with
 `publish_update_to_parameter("progress", n)` against an `int` param carrying
 `ui_options={"progress_bar": True}`.
 
@@ -500,7 +500,7 @@ so artists can redirect renders.
 
 ```python
 for attempt in range(max_attempts):
-    if self.is_cancellation_requested():
+    if self.is_cancellation_requested:  # a @property, NOT a method - see below
         raise RuntimeError("Cancelled by user")
     await asyncio.sleep(poll_interval)
     job = await client.get_job(job_id)
