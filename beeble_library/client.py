@@ -29,6 +29,11 @@ from beeble_library.constants import (
 from beeble_library.errors import BeebleError, RetryPolicy, from_response
 
 DEFAULT_TIMEOUT_SECONDS: Final = 60.0
+TRANSFER_TIMEOUT_SECONDS: Final = 900.0
+"""Media transfers get their own, far longer budget. A render download or a plate upload is not a
+60-second API call, and a read timeout mid-transfer surfaces as an httpx exception whose str() is
+empty -- an anonymous failure with no clue in it."""
+
 MAX_RETRY_ATTEMPTS: Final = 5
 BACKOFF_BASE_SECONDS: Final = 2.0
 BACKOFF_CAP_SECONDS: Final = 60.0
@@ -114,6 +119,26 @@ def reset_buckets(read_rpm: int = DEFAULT_READ_RPM, write_rpm: int = DEFAULT_WRI
     _CONCURRENCY_LIMIT = DEFAULT_CONCURRENCY
 
 
+def describe_exception(exc: BaseException) -> str:
+    """Never let an exception describe itself as nothing.
+
+    httpx timeout exceptions and asyncio.CancelledError both stringify to "", which surfaces in the
+    engine as "Failed with error:" and no cause. Fall back to the class name.
+    """
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+
+def _transport_error(exc: httpx.HTTPError, context: str) -> BeebleError:
+    """Wrap a transport-level failure so it carries its own diagnosis."""
+    hint = ""
+    if isinstance(exc, httpx.TimeoutException):
+        hint = " -- the request timed out; large media transfers use a longer budget than API calls"
+    elif isinstance(exc, httpx.ConnectError):
+        hint = " -- could not reach the host; check network or proxy"
+    return BeebleError(None, f"{context} failed: {describe_exception(exc)}{hint}")
+
+
 def _limit_value(node: Any) -> int | None:
     """Pull ``.limit`` out of a RateLimitInfo-shaped dict, treating null as 'leave alone'."""
     if isinstance(node, dict):
@@ -168,7 +193,10 @@ class BeebleClient:
 
         for attempt in range(MAX_RETRY_ATTEMPTS):
             await bucket.acquire()
-            response = await self._client.request(method, url, **kwargs)
+            try:
+                response = await self._client.request(method, url, **kwargs)
+            except httpx.HTTPError as e:
+                raise _transport_error(e, f"{method} {url}") from e
 
             if response.status_code == httpx.codes.OK:
                 return self._parse_json(response)
@@ -271,7 +299,16 @@ class BeebleClient:
             BeebleError: If the upload is rejected.
         """
         headers = {"Content-Type": content_type} if content_type else {}
-        response = await self._client.put(upload_url, content=data, headers=headers)
+        try:
+            response = await self._client.put(
+                upload_url,
+                content=data,
+                headers=headers,
+                timeout=TRANSFER_TIMEOUT_SECONDS,
+            )
+        except httpx.HTTPError as e:
+            raise _transport_error(e, f"Upload PUT of {len(data) / 1_048_576:.1f} MB") from e
+
         if response.status_code not in (httpx.codes.OK, httpx.codes.CREATED, httpx.codes.NO_CONTENT):
             msg = f"Upload PUT failed: {response.text[:200]}"
             raise BeebleError(None, msg, http_status=response.status_code)
@@ -302,7 +339,15 @@ class BeebleClient:
         Raises:
             BeebleError: If the download fails.
         """
-        response = await self._client.get(url, headers={API_KEY_HEADER: ""})
+        try:
+            response = await self._client.get(
+                url,
+                headers={API_KEY_HEADER: ""},
+                timeout=TRANSFER_TIMEOUT_SECONDS,
+            )
+        except httpx.HTTPError as e:
+            raise _transport_error(e, f"Download of {url[:120]}") from e
+
         if response.status_code != httpx.codes.OK:
             msg = f"Download failed for {url[:120]}: {response.text[:200]}"
             raise BeebleError(None, msg, http_status=response.status_code)

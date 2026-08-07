@@ -26,7 +26,7 @@ from griptape_nodes.exe_types.param_types.parameter_video import ParameterVideo
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-from beeble_library.client import BeebleClient, job_error, output_urls
+from beeble_library.client import BeebleClient, describe_exception, job_error, output_urls
 from beeble_library.constants import (
     API_KEY_NAME,
     DEFAULT_POLL_INTERVAL_SECONDS,
@@ -285,12 +285,31 @@ class SwitchXSpike(SuccessFailureNode):
             self.parameter_output_values["findings"] = findings
             self._set_status_results(was_successful=True, result_details=f"Spike succeeded.\n{findings}")
 
-        except Exception as e:
+        except asyncio.CancelledError:
+            # CancelledError subclasses BaseException, so `except Exception` never sees it and the
+            # engine reports "Failed with error:" with nothing after it. Report, then re-raise --
+            # swallowing a cancellation would leave the engine thinking the node is still running.
+            notes.append(f"CANCELLED after {time.monotonic() - started:.0f}s")
             self.parameter_output_values["output_video"] = None
             self.parameter_output_values["findings"] = "\n".join(f"- {n}" for n in notes)
             self._set_status_results(
                 was_successful=False,
-                result_details=f"{self.name}: spike failed: {e}\n" + "\n".join(f"- {n}" for n in notes),
+                result_details=(
+                    f"{self.name}: cancelled. The job may still be running on Beeble's side and will "
+                    f"still be billed -- re-fetch by job_id rather than resubmitting.\n"
+                    + "\n".join(f"- {n}" for n in notes)
+                ),
+            )
+            raise
+
+        except Exception as e:
+            detail = describe_exception(e)
+            notes.append(f"FAILED after {time.monotonic() - started:.0f}s at the stage above")
+            self.parameter_output_values["output_video"] = None
+            self.parameter_output_values["findings"] = "\n".join(f"- {n}" for n in notes)
+            self._set_status_results(
+                was_successful=False,
+                result_details=f"{self.name}: spike failed: {detail}\n" + "\n".join(f"- {n}" for n in notes),
             )
             self._handle_failure_exception(e)
 

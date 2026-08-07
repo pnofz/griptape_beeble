@@ -321,3 +321,75 @@ async def test_bucket_resize_never_drops_below_one() -> None:
     bucket = client_mod._TokenBucket(5)
     bucket.resize(0)
     assert bucket.rpm == 1
+
+
+# -- anonymous failures -------------------------------------------------------------------------
+#
+# httpx timeout exceptions and asyncio.CancelledError stringify to "". Unwrapped, they surface in
+# the engine as "Failed with error:" followed by nothing, which is what a real run hit.
+
+
+def test_describe_exception_never_returns_empty() -> None:
+    assert client_mod.describe_exception(httpx.ReadTimeout("")) == "ReadTimeout"
+    assert client_mod.describe_exception(TimeoutError()) == "TimeoutError"
+    assert client_mod.describe_exception(ValueError("boom")) == "ValueError: boom"
+    for exc in (httpx.ConnectTimeout(""), httpx.ReadError(""), RuntimeError()):
+        assert client_mod.describe_exception(exc).strip() != ""
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [httpx.ReadTimeout(""), httpx.ConnectTimeout(""), httpx.ConnectError(""), httpx.ReadError("")],
+)
+async def test_transport_failures_become_named_beeble_errors(exc: httpx.HTTPError) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise exc
+
+    async with make_client(handler) as client:
+        with pytest.raises(BeebleError) as excinfo:
+            await client.get_job("swx_1")
+
+    message = str(excinfo.value)
+    assert type(exc).__name__ in message
+    assert "/switchx/generations/swx_1" in message
+
+
+async def test_download_timeout_is_named_and_reports_the_url() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("")
+
+    async with make_client(handler) as client:
+        with pytest.raises(BeebleError) as excinfo:
+            await client.download("https://storage.example/signed/render.mp4")
+
+    message = str(excinfo.value)
+    assert "ReadTimeout" in message
+    assert "timed out" in message
+    assert "render.mp4" in message
+
+
+async def test_upload_timeout_reports_the_payload_size() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("")
+
+    async with make_client(handler) as client:
+        with pytest.raises(BeebleError) as excinfo:
+            await client.put_upload("https://storage.example/put", b"x" * (2 * 1024 * 1024))
+
+    assert "2.0 MB" in str(excinfo.value)
+
+
+async def test_media_transfers_get_a_longer_timeout_than_api_calls() -> None:
+    """A render download is not a 60-second API call."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen[request.url.path] = request.extensions.get("timeout", {})
+        return httpx.Response(200, json={}, content=None if request.method == "GET" else b"")
+
+    async with make_client(handler) as client:
+        await client.download("https://storage.example/render.mp4")
+
+    assert client_mod.TRANSFER_TIMEOUT_SECONDS > client_mod.DEFAULT_TIMEOUT_SECONDS
+    read_timeout = seen["/render.mp4"].get("read")
+    assert read_timeout == client_mod.TRANSFER_TIMEOUT_SECONDS
