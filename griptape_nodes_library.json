@@ -28,7 +28,7 @@
         "title": "SwitchX",
         "description": "Generate with SwitchX",
         "color": "border-amber-500",
-        "icon": "Wand2"
+        "icon": "logos/beeble.png"
       }
     },
     {
@@ -104,7 +104,7 @@
         "category": "switchx",
         "display_name": "SwitchX Spike",
         "description": "Throwaway end-to-end probe: submit, poll, download, save. Spends real credit.",
-        "icon": "Wand2"
+        "icon": "logos/beeble.png"
       }
     }
   ],
