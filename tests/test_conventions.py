@@ -105,6 +105,22 @@ def test_manifest_has_no_relative_image_paths() -> None:
     assert broken == [], f"relative image paths render as broken links, embed them instead: {broken}"
 
 
+def test_category_titles_share_one_root() -> None:
+    """Sub-categories nest by a "Root/Leaf" title prefix.
+
+    Renaming the root without renaming the leaves splits the menu into two separate trees, which
+    is what happened when the root became "Beeble SwitchX" while leaves still said "SwitchX/...".
+    """
+    import json
+
+    manifest = json.loads((REPO_ROOT / "griptape_nodes_library.json").read_text(encoding="utf-8"))
+    titles = [definition["title"] for entry in manifest["categories"] for definition in entry.values()]
+
+    roots = {title.split("/", 1)[0] for title in titles}
+    assert roots == {"Beeble SwitchX"}, f"category titles must share one root, found: {sorted(roots)}"
+    assert "Beeble SwitchX" in titles, "expected a top-level category with no '/' in its title"
+
+
 def test_embedded_icon_is_a_valid_png_matching_the_source_file() -> None:
     """The manifest carries the bytes; logos/beeble.png stays as the editable source of truth."""
     import base64
