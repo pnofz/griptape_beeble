@@ -49,8 +49,8 @@ class SwitchXSpike(SuccessFailureNode):
 
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata=metadata)
-        self.category = "SwitchX/Spike"
-        self.description = "End-to-end Beeble SwitchX probe. Spends real credit."
+        self.category = "SwitchX"
+        self.description = "Beeble Relighting Tool"
 
         # --- inputs ---------------------------------------------------------------------
         self.add_parameter(

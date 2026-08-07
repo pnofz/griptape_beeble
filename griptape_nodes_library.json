@@ -111,8 +111,8 @@
       "file_path": "spike/switchx_spike.py",
       "metadata": {
         "category": "switchx",
-        "display_name": "SwitchX Spike",
-        "description": "Throwaway end-to-end probe: submit, poll, download, save. Spends real credit.",
+        "display_name": "SwitchX Relight",
+        "description": "Beeble Relighting Tool",
         "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAC4AAAAvCAYAAACc5fiSAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAAEnQAABJ0Ad5mH3gAAAOtSURBVGhD7ZdNSCN3GMafScKYbgNhoRsRNhKbku5pUbZl24L11g+LBGnZQ/yErgZd8RIKe6iUwqK99Bjx0IIeUuJ23bYrNK0IbmklBy+9mKxmNzUlbaKpblyElDaTp4dsBv5jYj2MAwvzgyH5v+8zvL9JMh+RSBLPIBZt4VnBFDcaU9xoTHGjMcWNxhDxra0tDA0NYXV1Vaivra1hYGAAiURCqJ8KniEbGxv0+/2UJIkAGIvFhP7KygoBUJIk9vT0MB6PC/2TOBPxWCzGrq4uAlA3t9vNZDIp5La3t+l2u4VcZ2cnl5eXhVw9dBNXFIWLi4vs6OgQRHw+H+fn51kul/lPReHd4gNO5e5zqfiAfyv/slwuc2FhgT6fT9ivvb2d0WiUiqJoR5F6ivf29h4TjkQi6uBP8j8Rv946tn2cu08+PfBIJHLsAPx+v2ZSFd1OzoODA2FttVrV9/7fbuPT/M9Cv8at3V/wXjoKAJAkCTabTejv7+8L6xq6iWtJJpPo6+vDRZ8X9yK3gUpFG6lSqeD7r+7g4steBAKBU19hdBfv7+/H3NwcvF4vACD3aAeYWgK6Pwd2/hLDv+9X61NLyD3cAQB4vV6Ew2EMDw8DT7+FeugmXhtgt9sRDAaRSqXwzb1vgVfaqoH8IfDHY3GnPx9X6wBwxYOvv7uLVCqF8fFxyLIMAGj0B0038dqA2qskSejqfhv44kMgegN49zJg04yzWoB3Llf7X17Hm91vNfyEtegmXo/zVjtesJ0DLrUAM9eAq9Wfj8qrLwKfXQMutcBpbYLL9rzYP4EzFQeAm643tKW63LxwulwN3cUTiQR2d3fVdejCVbzUdF7IaPHITnzkek1dFwoFbG5uAkacnDXi8Tg8Hg8mJiaQzWYBAHc87+PKuRZtFADQ/lwzljwfwCpZkMvlMDk5idbWVqyvrwMnnJy63TnT6TTHxsZot9vVu54syxwZGWEmkyFJ/vjkEW9kf+DrqXmOZ2OMPXlIksxkMhwdHaUsy+q+TU1NDAaDTKfTmklVdBOvkc/nGQqF6HA4VAmLxcJAIMC9vT0hWygUODg4SIvFomYdDgdDoRDz+byQ1aK7eI1isciZmRk2NzerUo0eawHQ5XJxenqaxWJRyDTizMRrlEolzs7Osq2tra64x+NhOBxmqVQSev+HxIa/fn1RFAVHR0dwOp1q7fDwEA6HQ3ggOy2GieuN7pdDozDFjcYUNxpT3GhMcaMxxY3GFDcaU9xoTHGj+Q8kj3Yo56EkAgAAAABJRU5ErkJggg=="
       }
     }
