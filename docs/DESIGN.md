@@ -487,7 +487,7 @@ Settings → API Keys & Secrets.
 **Saving outputs.** Use the project-file system, not the deprecated `StaticFilesManager`:
 
 ```python
-saved = dest.write_bytes(video_bytes)                       # capture the return value
+saved = dest.write_bytes(video_bytes)  # capture the return value
 self.parameter_output_values["output_video"] = VideoUrlArtifact(saved.location)
 ```
 
@@ -509,7 +509,7 @@ for attempt in range(max_attempts):
     if job["status"] == "completed":
         return job
     if job["status"] == "failed":
-        raise RuntimeError(job.get("error") or "unknown")   # error is nullable-but-present
+        raise RuntimeError(job.get("error") or "unknown")  # error is nullable-but-present
 ```
 
 **Poll interval arithmetic — get this right or every graph trips the limiter.** Reads are capped at

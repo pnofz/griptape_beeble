@@ -1,0 +1,101 @@
+{
+  "name": "Beeble SwitchX",
+  "library_schema_version": "0.7.0",
+  "settings": [
+    {
+      "description": "API key required by Beeble SwitchX nodes",
+      "category": "app_events.on_app_initialization_complete",
+      "contents": {
+        "secrets_to_register": {
+          "BEEBLE_API_KEY": ""
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "author": "Rodeo FX",
+    "description": "Beeble SwitchX video-to-video compositing and relighting nodes",
+    "library_version": "0.1.0",
+    "engine_version": "0.94.4",
+    "tags": ["video", "relighting", "compositing", "vfx", "beeble", "switchx"],
+    "dependencies": {
+      "pip_dependencies": ["httpx>=0.27"]
+    }
+  },
+  "categories": [
+    {
+      "switchx": {
+        "title": "SwitchX",
+        "description": "Generate with SwitchX",
+        "color": "border-amber-500",
+        "icon": "Wand2"
+      }
+    },
+    {
+      "switchx_assets": {
+        "title": "SwitchX/Assets",
+        "description": "Uploads and URIs",
+        "color": "border-blue-500",
+        "icon": "Upload"
+      }
+    },
+    {
+      "switchx_config": {
+        "title": "SwitchX/Config",
+        "description": "Request assembly",
+        "color": "border-slate-500",
+        "icon": "Sliders"
+      }
+    },
+    {
+      "switchx_jobs": {
+        "title": "SwitchX/Jobs",
+        "description": "Submit, poll, fetch",
+        "color": "border-green-500",
+        "icon": "Play"
+      }
+    },
+    {
+      "switchx_preflight": {
+        "title": "SwitchX/Preflight",
+        "description": "Validation and cost guards",
+        "color": "border-red-500",
+        "icon": "ShieldCheck"
+      }
+    },
+    {
+      "switchx_prep": {
+        "title": "SwitchX/Prep",
+        "description": "Media conditioning",
+        "color": "border-purple-500",
+        "icon": "Film"
+      }
+    },
+    {
+      "switchx_batch": {
+        "title": "SwitchX/Batch",
+        "description": "Shot-list driving",
+        "color": "border-cyan-500",
+        "icon": "Layers"
+      }
+    },
+    {
+      "switchx_account": {
+        "title": "SwitchX/Account",
+        "description": "Limits, usage, billing",
+        "color": "border-yellow-500",
+        "icon": "Wallet"
+      }
+    },
+    {
+      "switchx_interop": {
+        "title": "SwitchX/Interop",
+        "description": "EXR, Nuke, delivery",
+        "color": "border-orange-500",
+        "icon": "Share2"
+      }
+    }
+  ],
+  "nodes": [],
+  "is_default_library": false
+}

@@ -158,7 +158,17 @@ uv run pyright
 Design spec complete and fact-checked. **Spike written, not yet run** — `spike/switchx_spike.py`
 plus `spike/griptape_nodes_library.json`. It compiles and every engine import resolves against
 0.94.2, but it has never been executed: `BEEBLE_API_KEY` is not registered on this machine, so
-running it is blocked on adding the key. No library code (`beeble_library/`) written yet.
+running it is blocked on adding the key.
+
+**P0 support modules landed and green** — `constants.py`, `errors.py`, `client.py`, `uri.py`, plus
+`pyproject.toml` and the root manifest. 126 tests pass (httpx MockTransport, no live calls), ruff
+clean, pyright clean. These depend only on settled API facts, not on spike results, which is why
+they were safe to build first.
+
+**Still missing from P0:** `probe.py` (blocked on the ffmpeg decision, open question 2 — and ffmpeg
+is not installed here), `base.py`, and all 15 nodes. `base.py` and the nodes are the parts that
+genuinely need the spike, because they depend on *runtime* engine behaviour rather than on APIs
+merely existing.
 
 **Do the spike before building anything.** One throwaway node that reads `BEEBLE_API_KEY`, submits
 the quickstart sample assets (`https://cdn.beeble.ai/public/developer-api/source.mp4`,
@@ -204,24 +214,31 @@ at `~/.nuke/griptape/sam3/.venv/Lib/site-packages/griptape_nodes`. Reference lib
    the standard library).
 6. **ffmpeg is NOT on PATH** on this machine — so the `prep` category cannot work as a system
    dependency today. Leans the Q3 decision toward bundling `imageio-ffmpeg`.
+7. **Output URLs live under `output`, not at the top level.** The completed-job response carries a
+   `SwitchXOutputUrls` object: `output.render` (composited output), `output.source` (preprocessed
+   source), `output.alpha` (alpha matte) — each `string | null`. Confirmed against the OpenAPI
+   schema, so the render-URL field name never needed a paid spike run.
+8. **The full error-code list is 27 entries / 26 unique.** `CREDIT_DEDUCTION_FAILED` is listed under
+   both 402 and 500, which is why the count reads 26. Enumerated verbatim in `beeble_library/errors.py`;
+   that module is now the single source of truth. `INVALID_CALLBACK_URL`, `MISSING_SOURCE`,
+   `MISSING_ALPHA`, `INVALID_GENERATION_TYPE`, `JOB_NOT_FOUND`, `INVALID_API_KEY`, `INTERNAL_ERROR`,
+   `UPLOAD_URL_FAILED` and `JOB_QUEUE_FAILED` were not named anywhere in this file before.
 
 ## Open questions — resolve by spike, don't guess
 
 1. **Does the render carry audio,** or come back silent? Decides whether `Restore Audio` exists at
    all. Undocumented — pure inference right now.
-2. **Render URL field name** — the docs never pin down what the completed-job response calls the
-   render URL. The spike probes a candidate list and reports the winner; hardcode it afterwards.
-3. **ffmpeg:** bundle `imageio-ffmpeg`, or require a system install and check for it in
+2. **ffmpeg:** bundle `imageio-ffmpeg`, or require a system install and check for it in
    `validate_before_workflow_run()`? The whole `prep` category depends on it. (Not installed here —
    see resolved item 6 above.)
-4. **Temporal continuity across chunked jobs** — assumed absent (so a 400-frame plate split in two
+3. **Temporal continuity across chunked jobs** — assumed absent (so a 400-frame plate split in two
    would drift at the seam), but untested. Determines whether chunk-and-stitch is viable.
-5. **Colour management:** assumed 8-bit sRGB. Confirm, then decide whether the OCIO round-trip lives
+4. **Colour management:** assumed 8-bit sRGB. Confirm, then decide whether the OCIO round-trip lives
    in `Encode For API` / `Conform Output` or is delegated to the OpenColorIO library.
-6. **`workflows[]` authoring format:** the manifest key is documented, the expected `.py` contents
+5. **`workflows[]` authoring format:** the manifest key is documented, the expected `.py` contents
    are not (they're retained-mode scripts). One spike against a live engine.
-7. **List-endpoint ordering and URL freshness** — both undocumented, both affect `Batch Wait`.
-8. **API-key-authenticated pricing** — ask Beeble support whether any endpoint returns unit prices
+6. **List-endpoint ordering and URL freshness** — both undocumented, both affect `Batch Wait`.
+7. **API-key-authenticated pricing** — ask Beeble support whether any endpoint returns unit prices
    to an `x-api-key` caller.
 
 The engine-side APIs are confirmed to **exist and import** (see resolved item 5) but have not been
